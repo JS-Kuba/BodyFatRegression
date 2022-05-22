@@ -1,1 +1,12 @@
-theme: jekyll-theme-cayman
+name: "bodyfat"
+  output_dir: "docs"
+  navbar:
+    title: "BodyFat"
+    left:
+    - text: "Home"
+        href: index.html
+    - text: "Body Fat analysis and multiple regression"
+        href: BodyFat.html
+  output:
+    html_document:
+      theme: cosmo
