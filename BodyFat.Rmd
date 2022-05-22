@@ -18,8 +18,11 @@ The final goal is to fit the multiple regression model for the percentage of bod
 RPubs link:  
 https://rpubs.com/JS24/779625
 
-## Setup  
-```{r setup, message=FALSE, warning=FALSE}
+```{r knit_options, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r lib, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(ggpubr)
 library(car)
