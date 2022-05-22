@@ -1,0 +1,276 @@
+---
+title: "BodyFat"
+author: "Jakub Sochacki"
+date: "4 06 2021"
+output: html_document
+    # rmdformats::downcute:
+  #   self_contained: true
+  #   thumbnails: false
+  #   lightbox: true
+  #   gallery: true
+  #   highlight: pygments
+---
+
+# Introduction
+In this report I will analyze 'bodyfat' data set containing 252 observations of variables describing body parts measurements.  
+The final goal is to fit the multiple regression model for the percentage of body fat.  
+
+RPubs link:  
+https://rpubs.com/JS24/779625
+
+## Setup  
+```{r setup, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggpubr)
+library(car)
+library(mfp)
+library(corrplot)
+library(papeR)
+library(knitr)
+library(kableExtra)
+library(xtable)
+library(olsrr)
+
+data(bodyfat)
+bf <- bodyfat
+```
+
+# Data analysis
+## General summary
+Data analysis process begins with understanding the data.
+First important observation is that height is measured in inches and weight in pounds. Other body measurements are in centimeters.
+```{r overview}
+summary(bodyfat)
+```
+Check if there are any NA values:
+```{r na}
+any(is.na(bodyfat))
+```
+Conversion of height and weight to centimeters and kilograms.  
+```{r conversion}
+bf$height <- bf$height * 2.54
+bf$weight <- bf$weight * 0.4536
+```
+
+## Adjustments on data set  
+I drop 'brozek' column which was the body fat percentage using Brozek's equation 457/Density - 414.2.    
+Preferred body fat percentage formula will be obtained by the Siri's equation 495/Density - 450.  
+Column 'case' also can be dropped since it won't be used as indexing tool.  
+
+```{r adjustments}
+bf <- subset(bf, select = -c(brozek))
+bf <- subset(bf, select = -c(case))
+bf<- rename(bf, fat = siri)
+```
+There is a summary for the adjusted data set:
+```{r summary}
+summary(bf)
+```
+Certain data corrections are necessary. It is assumed that height of 75 cm is not possible for 92 kg man aged 44. Therefore, height is corrected by adding 100 cm. After the change height 175 is close to the median.
+```{r corrections}
+bf[42,6] <- bf[42,6] + 100
+```
+New variable BMI is introduced - Body Mass Index is calculated by the formula:   
+BMI = Weight(kg) / Height(m)
+```{r bmi}
+bf<- bf %>% mutate(bmi = weight / ((height)/100)^2)
+```
+## Correlations evaluation
+It can be guessed that certain body parts size informs about person's silhouette. Initially I thought that there is a strong relationship between abdomen, hip, and chest and fat percentage. On the other hand I suspected not much correlation between age and body fat.   
+Indeed my guess was correct, but it is not enough to select variables for regression model.
+
+```{r cor1, message=FALSE,warning=FALSE}
+abd <- ggplot(bf, aes(x=abdomen, y = fat)) + geom_point() + geom_smooth(method = "lm", color="green")
+chst <- ggplot(bf, aes(x=chest, y = fat)) + geom_point()+ geom_smooth(method = "lm", color="red")
+hp <- ggplot(bf, aes(x=hip, y = fat)) + geom_point()+ geom_smooth(method = "lm", color="blue")
+ag <- ggplot(bf, aes(x=age, y = fat)) + geom_point()+ geom_smooth(method = "lm", color="gold")
+
+ggarrange(abd, chst, hp, ag)
+```
+The best way to evaluate correlations in the data set will be to use correlation matrix.  
+It shows how variables are related to each other.    
+```{r correlation}
+corrplot(cor(bf), method = "pie", type = "upper", diag =FALSE, title = "Correlation matrix - body fat data")
+```
+
+It can be concluded that in face chest, abdomen and hip are strongly correlated with the body fat percentage.  
+However, it is necessary to minimize multicollinearity in the regression model. On the plot it can be observed that for example chest and abdomen measurements do not only influence fat level but also are strongly correlated with each other. Possibly only one of them should be included int the model.   
+Correlation between abdomen and chest:  
+```{r abdo_chest}
+attach(bf)
+cor(abdomen, chest)
+```
+# Multiple regression model 
+First step in model selection would be to analyze the general model with predictors being all variables.  Below table shows that only density variable has a significant relationship with fat.  
+```{r general_model}
+bf.mod <- lm(fat ~ density + age + weight + height + neck + chest + abdomen + hip + thigh + knee + ankle + biceps + forearm + wrist)
+bf.mod.pretty <- papeR::prettify(summary(bf.mod))
+kable(bf.mod.pretty) %>% kable_styling(bootstrap_options = "bordered")
+summary(bf.mod)
+```
+## Model selection using Akaike Information Criterion (AIC)  
+Second general model with introduced bmi variable.  
+```{r mod2}
+bf.mod2 <- lm(fat ~ density + age + weight + +height + neck + chest + abdomen + hip + thigh + knee + ankle + biceps + forearm + wrist + bmi)
+summary(bf.mod2)
+
+```
+From the general model we can extract which variables to choose for the model.
+Optimized model can be obtained by selecting predictors by backward selection.  
+Step function evaluates Akaike Information Criterion and selects proper predictors.  
+```{r AIC}
+backward2 <- step(bf.mod2, scope = list(lower ~ density), trace = 0)
+backward2
+```
+Obviously selected model fits pretty well to the general model, but it still uses many predictors which may lead to overfitting.  
+```{r fit}
+plot(fitted(bf.mod2) ~ fitted(backward2))
+abline(0,1)
+
+cor(fitted(bf.mod2), fitted(backward2))
+
+```
+## Third model
+From the second model summary it can be concluded that density variable has a large t-value and standard error. Moreover it is strongly related with chest. For that reason I will not use it as a predictor in a third model. Ankle won't be taken into consideration for now.  
+
+Proposed model has age, chest and hip as predictors.  
+
+```{r mod3}
+bf.mod3 <- lm(fat ~ age + chest + hip)
+summary(bf.mod3)
+```
+AIC of proposed model:  
+```{r mod3_aic}
+AIC(bf.mod3)
+```
+Linear model coefficients:
+```{r mod3_backward}
+backward3 <- step(bf.mod3, scope = list(lower ~ age), trace = 0)
+backward3
+```
+Fit of the full and subset models is compared by looking at the corresponding fitted values.
+
+
+```{r mod3_fitted}
+plot(fitted(bf.mod3) ~ fitted(backward3))
+abline(0,1)
+qqPlot(bf.mod3)
+```
+Model and its subset provide the same response variable values.
+```{r mod3_cor}
+cor(fitted(backward3), fitted(bf.mod3))
+```
+
+For now the fitted slope is described by the equation:  
+**fat = -63.42655 + 0.15266 * age + 0.42596 * chest + 0.32809 * hip**
+
+
+Residuals normality evaluation: 
+Distribution seems to be roughly symmetrical and normal. On the Q-Q plot residuals are also really close to the normal line where they are expected to be.  
+```{r residuals}
+hist(bf.mod3$residuals)
+qqnorm(bf.mod3$residuals)
+qqline(bf.mod3$residuals)
+```
+From the output, the p-value > 0.05 implying that the distribution of the data are not significantly different from normal distribution. In other words, we can assume the normality.
+```{r shapiro_test}
+shapiro.test(bf.mod3$residuals)
+```
+
+Global Validation of Linear Models Assumptions:
+```{r mod3_glvma}
+library(gvlma)
+gvmodel3 <- gvlma(bf.mod3) 
+summary(gvmodel3)
+```
+As we can see the model obtained linearity, nearly normal residuals, and constant variability (heteroscedasticity).  One assumption is still to be met.
+
+## Outliers, leverage, influential observations
+Below I examine which observations have significant influence in the fitted regression line.  In order to to that I start with method which evaluates the difference in fits.
+```{r infl1_a, warning=FALSE,message=FALSE}
+ols_plot_dffits(bf.mod3)
+```
+On the plot it can be seen that observation number 39 is extremely influential.
+Further investigation of this observation is performed: 
+```{r infl1_b}
+kable(bf[which(dffits(bf.mod3) < -0.5),]) %>% kable_styling(bootstrap_options = c("bordered", "striped"))
+```
+```{r outliers1, message=FALSE}
+outlierTest(bf.mod3)
+```
+Cook's distance informs that deleting observation #39 will significantly change fitted slope.  
+```{r infl2}
+ols_plot_cooksd_bar(bf.mod3)
+```
+Studentized residuals vs leverage plot shows which obs. are influencial and which are outliers.
+```{r infl3}
+ols_plot_resid_lev(bf.mod3)
+```
+In the table we can see three selected outliers, but only one has extremely large Cook's distance.
+```{r infl4}
+influencePlot(bf.mod3)
+```
+Further residuals plots confirm that observation #39 should be adjusted or removed.  
+```{r outliers2}
+ols_plot_resid_stud(bf.mod3)
+ols_plot_resid_stand(bf.mod3)
+
+```
+
+Since there is only one extremely high leverage outlier data set won't be transformed.  
+Observation #39 will be removed from the data set.
+
+# Delete observation 39.
+```{r adjust}
+bf_adj <- bf[-c(39),]
+```
+# Reprat the model analysis  
+Now model is re - calibrated. I repeat steps to obtain new regression line.  
+```{r mod3_adjust}
+bf.mod3.adj <- lm(bf_adj$fat ~ bf_adj$age + bf_adj$chest + bf_adj$hip)
+summary(bf.mod3.adj)
+
+```
+
+```{r backward3_adj}
+backward3.adj <- step(bf.mod3.adj, scope = list(lower ~ bf_adj$age), trace = 0)
+backward3.adj
+
+plot(fitted(bf.mod3.adj) ~ fitted(backward3.adj))
+abline(0,1)
+```
+```{r qqplot, echo=FALSE}
+qqPlot(bf.mod3.adj)
+```
+Repeated Global Validation of Linear Models Assumptions tells that all assumptions were met this time.
+```{r gvlma3_adj}
+gvmodel3.adj <- gvlma(bf.mod3.adj)
+summary(gvmodel3.adj)
+```
+Difference in fits plot improved a lot since outlier has been removed.
+No observation passes the threshold 0.5 set in previous model evaluation.  
+```{r infl_adj}
+ols_plot_dffits(bf.mod3.adj)
+bf[which(dffits(bf.mod3.adj) < -0.5),]
+```
+Cook's distances also look way better. Possibly observation #216 removal should be considered, but even without it results seem satisfactory.  
+```{r infl_adj2}
+ols_plot_cooksd_bar(bf.mod3.adj)
+ols_plot_resid_lev(bf.mod3.adj)
+```
+
+All residuals are normal:  
+```{r outliers_adj}
+ols_plot_resid_stud(bf.mod3.adj)
+```
+AIC has also improved:  
+```{r aic3}
+AIC(bf.mod3.adj)
+```
+
+```{r mod3_plot}
+avPlots(bf.mod3.adj)
+```
+
+# Obtained regression line:  
+**fat = -70.71043 + 0.16227 * age + 0.37766 * chest + 0.44618 * hip**  
