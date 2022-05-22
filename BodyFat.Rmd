@@ -1,8 +1,8 @@
 ---
 title: "BodyFat"
-author: "Jakub Sochacki"
-date: "4 06 2021"
-output: html_document
+#author: "Jakub Sochacki"
+#date: "4 06 2021"
+#output: html_document
     # rmdformats::downcute:
   #   self_contained: true
   #   thumbnails: false
